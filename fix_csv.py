@@ -20,13 +20,11 @@ def clean_and_verify(path):
     data = reader[1:]
 
     # 1. Deduplicate identical adjacent rows
-    # key=lambda x: x ensures the entire row content is compared
     clean_data = [key for key, _ in itertools.groupby(data)]
-    
     lines_removed = len(data) - len(clean_data)
     
-    # 2. Safety Checks (Warnings only)
-    ts_collisions = 0
+    # 2. Safety Checks
+    collision_timestamps = []
     out_of_order = 0
     
     for i in range(1, len(clean_data)):
@@ -34,11 +32,11 @@ def clean_and_verify(path):
         curr_ts = clean_data[i][0]
         
         if curr_ts == prev_ts:
-            ts_collisions += 1
+            collision_timestamps.append(curr_ts)
         elif curr_ts < prev_ts:
             out_of_order += 1
 
-    # 3. Save if changes were made and echo summary
+    # 3. Save if changes were made
     if lines_removed > 0:
         with open(path, 'w', newline='', encoding='utf-8') as f:
             writer = csv.writer(f)
@@ -48,12 +46,23 @@ def clean_and_verify(path):
         print(f"MODIFIED: {path}")
         print(f"  -> Removed {lines_removed} identical lines.")
     
-    # Always echo warnings if issues are found, even if no lines were removed
-    if ts_collisions > 0 or out_of_order > 0:
+    # 4. Enhanced Warnings with Timestamp reporting
+    if collision_timestamps or out_of_order > 0:
         if lines_removed == 0: print(f"CHECK:    {path}")
-        if ts_collisions > 0: print(f"  [!] WARNING: {ts_collisions} duplicate timestamps with DIFFERENT values.")
-        if out_of_order > 0:  print(f"  [!] WARNING: {out_of_order} timestamps appear out of chronological order.")
+        
+        if collision_timestamps:
+            # Showing up to 5 specific timestamps to keep output clean
+            ts_display = ", ".join(collision_timestamps[:5])
+            more = f" (+{len(collision_timestamps)-5} more)" if len(collision_timestamps) > 5 else ""
+            print(f"  [!] WARNING: {len(collision_timestamps)} duplicate timestamps at: {ts_display}{more}")
+            
+        if out_of_order > 0:
+            print(f"  [!] WARNING: {out_of_order} timestamps appear out of chronological order.")
 
 if __name__ == "__main__":
-    process_files('./Raw') # Set to your repo root
-
+    # Ensure the 'Raw' folder exists or change this path to your target directory
+    target_dir = './Raw'
+    if os.path.exists(target_dir):
+        process_files(target_dir)
+    else:
+        print(f"Directory '{target_dir}' not found.")

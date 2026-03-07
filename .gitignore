@@ -1,3 +1,6 @@
 # Ignore all files inside Processed, but keep the directory itself
 Processed/*
 !Processed/.gitkeep
+
+Staging/*
+!Staging/.gitkeep
