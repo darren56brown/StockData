@@ -55,5 +55,5 @@ def clean_and_verify(path):
         if out_of_order > 0:  print(f"  [!] WARNING: {out_of_order} timestamps appear out of chronological order.")
 
 if __name__ == "__main__":
-    process_files('.') # Set to your repo root
+    process_files('./Raw') # Set to your repo root
 
