@@ -2,16 +2,10 @@ import subprocess
 
 # Hardcode your lists here
 tickers = [
-    'AIT', 
-    'LINE', 
-    'W', 
-    'SEIC',
-    'OGE', 
-    'MDGL', 
-    'MOD', 
-    'BAH',
-    'SBSW', 
-    'AOS'
+    'AMD', 
+    'AVGO', 
+    'PLTR', 
+    'MU'
     ]
 months = ['2026-01', '2026-02']
 
