@@ -7,6 +7,8 @@ from glob import glob
 RAW_DIR = "./Raw"
 REF_DIR = os.path.join(RAW_DIR, "Reference")
 OUTPUT_DIR = "../StockPredictor/Processed"
+# Standard US Market Hours (Eastern Time translated to UTC or Local)
+# If your data is 09:30 to 16:00, we normalize based on that span.
 # ---------------------
 
 def load_and_prep(file_path):
@@ -16,6 +18,22 @@ def load_and_prep(file_path):
     df.columns = [c.lower() for c in df.columns]
     df['time'] = pd.to_datetime(df['time'])
     return df.set_index('time').sort_index()
+
+def add_time_feature(df):
+    """Calculates decimal time of day (0.0 at Open, 1.0 at Close)."""
+    # Get minutes from midnight
+    minutes = df.index.hour * 60 + df.index.minute
+    
+    # Standard NYSE hours are 09:30 (570 mins) to 16:00 (960 mins)
+    # We use the actual min/max in the data to be timezone-independent
+    day_start = minutes.min()
+    day_end = minutes.max()
+    
+    if day_end != day_start:
+        df['time_of_day'] = (minutes - day_start) / (day_end - day_start)
+    else:
+        df['time_of_day'] = 0.0
+    return df
 
 def process_all_stocks(normalize=True, debug=False):
     spy_path = os.path.join(REF_DIR, "SPY.csv")
@@ -43,21 +61,26 @@ def process_all_stocks(normalize=True, debug=False):
                 print(f"  -> Skipping {ticker}: No overlap.")
                 continue
 
+            # Add the Time of Day feature BEFORE Z-score normalization
+            df_combined = add_time_feature(df_combined)
+
             if normalize:
-                # Cast to float for Z-score calculation
+                # Z-score normalization for all columns
+                # Note: time_of_day is already 0-1, but Z-scoring it
+                # centers it for the neural network.
                 df_combined = df_combined.astype('float32')
                 df_combined = ((df_combined - df_combined.mean()) / df_combined.std()).round(6)
             else:
-                # Sanity check mode: Keep prices as floats and volumes as integers
-                # Find any column that contains 'volume'
+                # Ensure volumes are ints for sanity check mode
                 vol_cols = [c for c in df_combined.columns if 'volume' in c]
                 for col in vol_cols:
                     df_combined[col] = df_combined[col].fillna(0).astype('int64')
+                # Keep time_of_day as a clean 4-decimal float
+                df_combined['time_of_day'] = df_combined['time_of_day'].round(4)
 
             # Save Output
             if debug:
                 out_path = os.path.join(OUTPUT_DIR, f"{ticker}_DEBUG.csv")
-                # float_format=None prevents e-notation for standard floats in CSV
                 df_combined.reset_index().to_csv(out_path, index=False)
             else:
                 out_path = os.path.join(OUTPUT_DIR, f"{ticker}.parquet")
