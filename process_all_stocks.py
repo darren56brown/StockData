@@ -7,8 +7,6 @@ from glob import glob
 RAW_DIR = "./Raw"
 REF_DIR = os.path.join(RAW_DIR, "Reference")
 OUTPUT_DIR = "../StockPredictor/Processed"
-# Standard US Market Hours (Eastern Time translated to UTC or Local)
-# If your data is 09:30 to 16:00, we normalize based on that span.
 # ---------------------
 
 def load_and_prep(file_path):
@@ -20,22 +18,30 @@ def load_and_prep(file_path):
     return df.set_index('time').sort_index()
 
 def add_time_feature(df):
-    """Calculates decimal time of day (0.0 at Open, 1.0 at Close)."""
-    # Get minutes from midnight
-    minutes = df.index.hour * 60 + df.index.minute
+    """
+    Converts UTC index to NY time to handle DST shifts, 
+    maps 09:30-16:00 to 0.0-1.0, then strips TZ info.
+    """
+    # 1. Localize to UTC, then convert to NY (Handles 4/5 hour DST shift)
+    # Using 'America/New_York' as it's more standard than 'US/Eastern'
+    eastern_times = df.index.tz_localize('UTC').tz_convert('America/New_York')
     
-    # Standard NYSE hours are 09:30 (570 mins) to 16:00 (960 mins)
-    # We use the actual min/max in the data to be timezone-independent
-    day_start = minutes.min()
-    day_end = minutes.max()
+    # 2. Minutes from midnight in NY Time
+    minutes = eastern_times.hour * 60 + eastern_times.minute
     
-    if day_end != day_start:
-        df['time_of_day'] = (minutes - day_start) / (day_end - day_start)
-    else:
-        df['time_of_day'] = 0.0
+    # 3. Define standard NYSE bounds (Eastern Time)
+    OPEN = 570  # 09:30
+    CLOSE = 960 # 16:00
+    
+    # 4. Normalize and clip
+    df['time_of_day'] = (minutes - OPEN) / (CLOSE - OPEN)
+    df['time_of_day'] = df['time_of_day'].clip(0, 1).round(4)
+    
+    # Note: df.index remains UTC (tz-naive) because we calculated 
+    # using a temporary series 'eastern_times'.
     return df
 
-def process_all_stocks(normalize=True, debug=False):
+def process_all_stocks(debug=False):
     spy_path = os.path.join(REF_DIR, "SPY.csv")
     if not os.path.exists(spy_path):
         print(f"Error: Reference file not found at {spy_path}")
@@ -61,22 +67,16 @@ def process_all_stocks(normalize=True, debug=False):
                 print(f"  -> Skipping {ticker}: No overlap.")
                 continue
 
-            # Add the Time of Day feature BEFORE Z-score normalization
+            # Add features and ensure raw data types
             df_combined = add_time_feature(df_combined)
+            
+            # Ensure volumes are preserved as integers
+            vol_cols = [c for c in df_combined.columns if 'volume' in c]
+            for col in vol_cols:
+                df_combined[col] = df_combined[col].fillna(0).astype('int64')
 
-            if normalize:
-                # Z-score normalization for all columns
-                # Note: time_of_day is already 0-1, but Z-scoring it
-                # centers it for the neural network.
-                df_combined = df_combined.astype('float32')
-                df_combined = ((df_combined - df_combined.mean()) / df_combined.std()).round(6)
-            else:
-                # Ensure volumes are ints for sanity check mode
-                vol_cols = [c for c in df_combined.columns if 'volume' in c]
-                for col in vol_cols:
-                    df_combined[col] = df_combined[col].fillna(0).astype('int64')
-                # Keep time_of_day as a clean 4-decimal float
-                df_combined['time_of_day'] = df_combined['time_of_day'].round(4)
+            # Round time_of_day for cleanliness, keep others raw
+            df_combined['time_of_day'] = df_combined['time_of_day'].round(4)
 
             # Save Output
             if debug:
@@ -94,8 +94,6 @@ def process_all_stocks(normalize=True, debug=False):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Process all stocks in Raw/ aligned to SPY.")
     parser.add_argument("--debug", action="store_true")
-    parser.add_argument("--normalize", action="store_true", default=True)
-    parser.add_argument("--no-normalize", dest="normalize", action="store_false")
 
     args = parser.parse_args()
-    process_all_stocks(normalize=args.normalize, debug=args.debug)
+    process_all_stocks(debug=args.debug)
