@@ -4,6 +4,7 @@ import pandas as pd
 import argparse
 from datetime import datetime, timedelta
 from calendar import monthrange
+import glob
 
 # --- CONFIGURATION ---
 DATA_DIR = os.path.expanduser("./Staging")
@@ -14,7 +15,7 @@ INTRADAY_INTERVALS = {'1m', '2m', '5m', '15m', '30m', '60m', '90m', '1h'}
 def main():
     parser = argparse.ArgumentParser(
         description="Fetch intraday data for each trading day in a (partial) month using yahoo_pull.py, "
-                    "then combine all daily files into one monthly file.",
+                    "then combine all existing daily files for the full month into one monthly file.",
         epilog="""Example usage:
   python monthly_pull.py TSLA 2026-03 5m
   python monthly_pull.py NVDA 2025-12 1h --start-day 10 --end-day 20
@@ -24,6 +25,8 @@ def main():
 Notes:
 - --start-day defaults to 1
 - --end-day defaults to the last day of the month
+- --start-day and --end-day only affect which days to attempt fetching (skipping if exist).
+- Always combines all existing daily files for the full month, regardless of --start-day and --end-day.
 - Only intraday intervals are accepted.
 - Skips days where the file already exists.
 - Non-trading days produce empty/missing files — normal behavior."""
@@ -91,12 +94,11 @@ Notes:
     end_date   = datetime(year, month, end_day)
 
     print(f"Processing {symbol} for {year_month} at {interval} interval...")
-    print(f"Date range: {start_date.date()} to {end_date.date()} "
+    print(f"Date range for fetching: {start_date.date()} to {end_date.date()} "
           f"(days {start_day}–{end_day})\n")
 
-    # Collect daily filesfrom tools import get_all_tickers
+    # Fetch loop (only for specified range)
     current_date = start_date
-    daily_files = []
     fetched_count = 0
 
     while current_date <= end_date:
@@ -127,28 +129,31 @@ Notes:
                 else:
                     print(f"  Fetch ran but no/useless file for {date_str}")
 
-        daily_files.append(filepath)
         current_date += timedelta(days=1)
 
     print(f"\nFetch complete. Fetched {fetched_count} new days.")
+
+    # Collect all existing daily files for the full month
+    print("\nCombining all existing daily files for the month...")
+    pattern = os.path.join(DATA_DIR, f"{symbol}_{year_month}-*_{interval}.csv")
+    daily_files = sorted(glob.glob(pattern))
 
     # Combine
     combined_df = pd.DataFrame()
     valid_files = 0
 
     for filepath in daily_files:
-        if os.path.exists(filepath):
-            try:
-                df_day = pd.read_csv(
-                    filepath,
-                    index_col='timestamp',
-                    parse_dates=True
-                )
-                if not df_day.empty:
-                    combined_df = pd.concat([combined_df, df_day])
-                    valid_files += 1
-            except Exception as e:
-                print(f"Warning: Could not read {os.path.basename(filepath)} → {e}")
+        try:
+            df_day = pd.read_csv(
+                filepath,
+                index_col='timestamp',
+                parse_dates=True
+            )
+            if not df_day.empty:
+                combined_df = pd.concat([combined_df, df_day])
+                valid_files += 1
+        except Exception as e:
+            print(f"Warning: Could not read {os.path.basename(filepath)} → {e}")
 
     if combined_df.empty:
         print("No valid data found to combine.")

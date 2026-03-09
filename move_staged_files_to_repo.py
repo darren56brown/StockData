@@ -7,11 +7,14 @@ def organize_staging_to_raw(base_dir="."):
     raw_dir = base_path / "Raw"
     staging_dir = base_path / "Staging"
     
+    # Counters for final echo
+    total_moved = 0
+    total_overwritten = 0
+    
     # 1. Build Ticker Map from Raw
     ticker_map = {} # {ticker: directory_path}
     
     for file_path in raw_dir.rglob("*.csv"):
-        # Expecting format: XYZ_yyyy-mm_5m.csv
         parts = file_path.name.split('_')
         if len(parts) < 2:
             continue
@@ -36,8 +39,8 @@ def organize_staging_to_raw(base_dir="."):
         name = file_path.name
         parts = name.split('_')
         
-        # Identify month files (XYZ_yyyy-mm_5m.csv) 
-        # Length of yyyy-mm is 7; length of yyyy-mm-dd is 10
+        # Month files have date format YYYY-MM (length 7)
+        # Daily files have date format YYYY-MM-DD (length 10)
         if len(parts) >= 2 and len(parts[1]) == 7:
             ticker = parts[0]
             
@@ -46,14 +49,20 @@ def organize_staging_to_raw(base_dir="."):
                 
                 if dest_path.exists():
                     print(f"OVERWRITING: {name} -> {dest_path}")
+                    total_overwritten += 1
                 else:
                     print(f"MOVING: {name} -> {dest_path}")
                 
                 shutil.move(str(file_path), str(dest_path))
+                total_moved += 1
             else:
                 print(f"SKIPPING: Ticker '{ticker}' from {name} not found in Raw map.")
-        
-        # Daily files (len(parts[1]) == 10) are naturally ignored
+
+    # 3. Final Echo
+    print("\n" + "="*30)
+    print(f"Total files moved: {total_moved}")
+    print(f"Total files overwritten: {total_overwritten}")
+    print("="*30)
 
 if __name__ == "__main__":
     organize_staging_to_raw()

@@ -87,7 +87,7 @@ Notes:
         df = yf.download(
             tickers=symbol,
             start=start_date,
-            end=end_date + timedelta(days=1),
+            end=end_date,
             interval=interval,
             progress=False,
             auto_adjust=True,

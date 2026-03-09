@@ -12,7 +12,7 @@ def run_all(dir):
     
     tickers = get_all_tickers(dir, "")
     months = ['2026-03']
-    start_day = 2
+    start_day = 1
     end_day = 8
 
     if not tickers:
