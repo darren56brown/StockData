@@ -18,10 +18,9 @@ def sync_all_to_spy():
     spy_index = spy.index
     spy_last_ts = spy_index.max()
     
-    # Track results for final summary
     summary = []
 
-    # 2. Find all ticker files (recursively, excluding SPY)
+    # 2. Find all ticker files
     ticker_files = [f for f in glob.glob(os.path.join(RAW_DIR, "**", "*.csv"), recursive=True) 
                     if "SPY.csv" not in f]
 
@@ -33,18 +32,16 @@ def sync_all_to_spy():
         status = "Synced"
         
         try:
+            # Load existing stock data
             df = pd.read_csv(file_path, index_col='timestamp', parse_dates=True)
             
-            # RULE 1: Remove any local data that doesn't exist in the SPY master clock
-            # This handles orphans and ensures time-alignment.
+            # RULE 1: Remove data not in SPY
             df = df[df.index.isin(spy_index)]
 
-            # RULE 2: Check for a gap at the end (the "tail")
+            # RULE 2: Fetch tail if necessary
             stock_last_ts = df.index.max()
             
             if pd.isna(stock_last_ts) or stock_last_ts < spy_last_ts:
-                # If file is empty, we can't know when it "started", 
-                # so we default to SPY's start to be safe (or a specific date).
                 fetch_start = stock_last_ts.strftime('%Y-%m-%d') if not pd.isna(stock_last_ts) else "2026-01-01"
                 
                 new_data = yf.download(
@@ -56,24 +53,32 @@ def sync_all_to_spy():
                 )
 
                 if not new_data.empty:
-                    # Clean yfinance format
                     if isinstance(new_data.columns, pd.MultiIndex):
                         new_data.columns = new_data.columns.get_level_values(0)
                     new_data.index = new_data.index.tz_localize(None)
                     new_data = new_data[['Open', 'High', 'Low', 'Close', 'Volume']]
                     
-                    # Merge: overwrite existing partial data with fresh data
                     df = pd.concat([df, new_data])
                     df = df[~df.index.duplicated(keep='last')]
-                    
-                    # Re-filter after merge to ensure new data respects SPY's clock
                     df = df[df.index.isin(spy_index)]
                     status = "Updated"
                 else:
-                    status = "No new data (Check Yahoo 60-day limit)"
+                    status = "No new data (Yahoo Limit)"
 
-            # Final save
+            # --- PRECISION & CLEANUP ---
+            # Round prices to 4 decimal places
+            price_cols = ['Open', 'High', 'Low', 'Close']
+            df[price_cols] = df[price_cols].round(4)
+            
+            # Convert Volume to integer (removes the .0)
+            df['Volume'] = df['Volume'].fillna(0).astype(int)
+
+            # Ensure the index column header is named 'timestamp'
+            df.index.name = 'timestamp'
+            
+            # Save cleaned and updated file
             df.sort_index().to_csv(file_path)
+            
             summary.append(f"{ticker:10} | {status:20} | Rows: {len(df)}")
             print(f"Processed {ticker}: {status}")
 
@@ -82,9 +87,7 @@ def sync_all_to_spy():
             print(f"Error processing {ticker}: {e}")
 
     # Final Summary Echo
-    print("\n" + "="*30)
-    print("SYNC SUMMARY REPORT")
-    print("="*30)
+    print("\n" + "="*30 + "\nSYNC SUMMARY REPORT\n" + "="*30)
     for line in summary:
         print(line)
     print("="*30)
